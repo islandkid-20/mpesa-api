@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Order;
 use App\Services\VodacomService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
@@ -17,9 +18,11 @@ class VodacomServiceTest extends TestCase
     {
         $client = new Client();
         $vodacomService = new VodacomService($client);
-        $result = $vodacomService->makeC2BPayment("1000",  "0742892731", mt_rand(1000000, 9999999));
+        $order = Order::first();
+        echo $order->id;
+        $result = $vodacomService->makeC2BPayment(1000,  "0742892731",  $order);
 
-        echo $result;
+        var_dump($result);
         $this->assertNotEmpty($result);
     }
 }

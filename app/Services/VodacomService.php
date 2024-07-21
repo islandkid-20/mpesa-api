@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Order;
+use App\Models\Payment;
 use GuzzleHttp\Client;
 use phpseclib3\Crypt\RSA;
 use Illuminate\Support\Str;
@@ -100,10 +102,11 @@ class VodacomService
         }
     }
 
-    public function makeC2BPayment($amount, $phoneNumber, $reference)
+    public function makeC2BPayment($amount, $phoneNumber, Order $order)
     {
         try {
             $url = config('vodacom.payments.C2B_URL');
+            $short_code = config('vodacom.SHORT_CODE');
             $sessionKey = $this->getSessionKey();
             $validPhoneNumber = $this->validVodacomPhoneNumber($phoneNumber);
 
@@ -118,10 +121,10 @@ class VodacomService
                 "input_CustomerMSISDN" => $validPhoneNumber,
                 "input_Country" => "TZN",
                 "input_Currency" => "TZS",
-                "input_ServiceProviderCode" => "000000",
-                "input_TransactionReference" => $reference,
+                "input_ServiceProviderCode" => $short_code,
+                "input_TransactionReference" => $order->order_number,
                 "input_ThirdPartyConversationID" => Str::random(15),
-                "input_PurchasedItemsDesc" => "Mpesa Payment",
+                "input_PurchasedItemsDesc" => "Payment for order " . $order->order_number,
             ];
 
             $response = $this->client->post($url, [
@@ -133,7 +136,23 @@ class VodacomService
                 'json' => $payload
             ]);
 
-            return $response->getBody()->getContents();
+            $responseData = json_decode($response->getBody()->getContents(), true);
+            echo json_encode($responseData);
+            if (isset($responseData['output_ResponseCode']) && $responseData['output_ResponseCode'] === 'INS-0') {
+                Payment::create([
+                    'order_id' => $order->id,
+                    'amount' => $amount,
+                    'status' => 'Paid',
+                ]);
+
+                $order->amount_paid += $amount;
+                $order->save();
+                return $responseData;
+            } else {
+                $errorMessage = 'Error making C2B payment: ' . ($responseData['output_ResponseDesc'] ?? 'Unknown error');
+                Log::error($errorMessage);
+                throw new Exception($errorMessage);
+            }
         } catch (Exception $e) {
             $errorMessage = 'Error making C2B payment: ' . $e->getMessage();
             Log::error($errorMessage);
